@@ -1,2 +1,2 @@
 # altREUproject
-Hannah Ma and Shani Inbari altREU project 
+Shani Inbari altREU project 
