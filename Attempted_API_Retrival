@@ -1,0 +1,88 @@
+import requests
+import pandas as pd
+
+# Read the Excel file and specify the sheet name
+excel_file = r"C:\Users\yello\Downloads\Data_altREU\Designated_Orphan_Drugs_2009Onward.xlsx"
+df = pd.read_excel(excel_file, sheet_name='Condensed list')
+
+# Base URL for ClinicalTrials.gov API
+base_url = "https://clinicaltrials.gov/api/query/full_studies"
+
+# Function to construct the query and get results with pagination
+def get_all_trials(drug, sponsor):
+    all_trials = []
+    query = f"{drug}+AND+{sponsor}"
+    min_rank = 1
+    max_rank = 1000
+    while True:
+        params = {
+            'expr': query,
+            'min_rnk': min_rank,
+            'max_rnk': max_rank,
+            'fmt': 'json'
+        }
+        response = requests.get(base_url, params=params)
+        if response.status_code != 200:
+            break
+        result = response.json()
+        studies = result.get('FullStudiesResponse', {}).get('FullStudies', [])
+        if not studies:
+            break
+        all_trials.extend(studies)
+        min_rank += 1000  # Move to the next batch
+        max_rank += 1000  # Move to the next batch
+        if min_rank > 10000:  # Stop if we exceed the limit (as per API documentation)
+            break
+    return all_trials
+
+# Collect trials for all drugs and sponsors
+all_trials = []
+for index, row in df.iterrows():
+    drug = row['drug']
+    sponsor = row['sponsor']
+    trials = get_all_trials(drug, sponsor)
+    all_trials.extend(trials)
+
+# Extract relevant information and save to a DataFrame
+trial_data = []
+for trial in all_trials:
+    study = trial['Study']
+    id_module = study['ProtocolSection']['IdentificationModule']
+    status_module = study['ProtocolSection']['StatusModule']
+    description_module = study.get('ProtocolSection', {}).get('DescriptionModule', {})
+    eligibility_module = study.get('ProtocolSection', {}).get('EligibilityModule', {})
+
+    phase = id_module.get('Phase')
+    if phase and 'Phase 3' in phase: 
+        trial_info = {
+            'NCT Number': id_module.get('NCTNumber'),
+            'Title': id_module.get('OfficialTitle'),
+            'Sponsor': id_module.get('Sponsor'),
+            'Enrollment': id_module.get('Enrollment'),
+            'Primary Outcome Measures': id_module.get('PrimaryOutComeMeasures'),
+            'Secondary Outcome Measures': id_module.get('SecondaryOutcmeMeasures'), 
+            'Study URL': id_module.get('StudyURL'),
+            'Status': status_module.get('OverallStatus'),
+            'Study Type': id_module.get('StudyType'),
+            'Study Start Date': id_module.get('StudyStartDate'),
+            'Study Completion Date': status_module.get('CompletionDate'),
+            'Study Phase': id_module.get('Phase'),
+            'Condition': id_module.get('Condition'),
+            'Intervention': id_module.get('Intervention'),
+            'Brief Summary': description_module.get('BriefSummary'),
+            'Eligibility Criteria': eligibility_module.get('Criteria'),
+            'Gender': eligibility_module.get('Gender'),
+            'Minimum Age': eligibility_module.get('MinimumAge'),
+            'Maximum Age': eligibility_module.get('MaximumAge')
+    }
+    trial_data.append(trial_info)
+
+# Create a DataFrame
+df_output = pd.DataFrame(trial_data)
+
+# Save DataFrame to Excel
+df_output.to_csv('Designated_Drug_TrialData.csv', index=False)
+
+save_path = r'C:\Users\yello\Downloads\Data_altREU\Designated_Drug_TrialData.csv'
+
+print( "Data has been saved to", save_path)
