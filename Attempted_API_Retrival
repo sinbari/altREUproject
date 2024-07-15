@@ -1,88 +1,684 @@
 import requests
 import pandas as pd
+from itertools import product
 
-# Read the Excel file and specify the sheet name
-excel_file = r"C:\Users\yello\Downloads\Data_altREU\Designated_Orphan_Drugs_2009Onward.xlsx"
-df = pd.read_excel(excel_file, sheet_name='Condensed list')
-
-# Base URL for ClinicalTrials.gov API
-base_url = "https://clinicaltrials.gov/api/query/full_studies"
-
-# Function to construct the query and get results with pagination
-def get_all_trials(drug, sponsor):
-    all_trials = []
-    query = f"{drug}+AND+{sponsor}"
-    min_rank = 1
-    max_rank = 1000
-    while True:
-        params = {
-            'expr': query,
-            'min_rnk': min_rank,
-            'max_rnk': max_rank,
-            'fmt': 'json'
-        }
-        response = requests.get(base_url, params=params)
-        if response.status_code != 200:
-            break
-        result = response.json()
-        studies = result.get('FullStudiesResponse', {}).get('FullStudies', [])
-        if not studies:
-            break
-        all_trials.extend(studies)
-        min_rank += 1000  # Move to the next batch
-        max_rank += 1000  # Move to the next batch
-        if min_rank > 10000:  # Stop if we exceed the limit (as per API documentation)
-            break
-    return all_trials
-
-# Collect trials for all drugs and sponsors
-all_trials = []
-for index, row in df.iterrows():
-    drug = row['drug']
-    sponsor = row['sponsor']
-    trials = get_all_trials(drug, sponsor)
-    all_trials.extend(trials)
-
-# Extract relevant information and save to a DataFrame
-trial_data = []
-for trial in all_trials:
-    study = trial['Study']
-    id_module = study['ProtocolSection']['IdentificationModule']
-    status_module = study['ProtocolSection']['StatusModule']
-    description_module = study.get('ProtocolSection', {}).get('DescriptionModule', {})
-    eligibility_module = study.get('ProtocolSection', {}).get('EligibilityModule', {})
-
-    phase = id_module.get('Phase')
-    if phase and 'Phase 3' in phase: 
-        trial_info = {
-            'NCT Number': id_module.get('NCTNumber'),
-            'Title': id_module.get('OfficialTitle'),
-            'Sponsor': id_module.get('Sponsor'),
-            'Enrollment': id_module.get('Enrollment'),
-            'Primary Outcome Measures': id_module.get('PrimaryOutComeMeasures'),
-            'Secondary Outcome Measures': id_module.get('SecondaryOutcmeMeasures'), 
-            'Study URL': id_module.get('StudyURL'),
-            'Status': status_module.get('OverallStatus'),
-            'Study Type': id_module.get('StudyType'),
-            'Study Start Date': id_module.get('StudyStartDate'),
-            'Study Completion Date': status_module.get('CompletionDate'),
-            'Study Phase': id_module.get('Phase'),
-            'Condition': id_module.get('Condition'),
-            'Intervention': id_module.get('Intervention'),
-            'Brief Summary': description_module.get('BriefSummary'),
-            'Eligibility Criteria': eligibility_module.get('Criteria'),
-            'Gender': eligibility_module.get('Gender'),
-            'Minimum Age': eligibility_module.get('MinimumAge'),
-            'Maximum Age': eligibility_module.get('MaximumAge')
+def download_function(drug, condition, sponsor): 
+    url = "https://clinicaltrials.gov/api/v2/studies"  
+    params = {
+        "query.intr": drug,
+        "query.cond": condition,
+        "query.lead": sponsor, 
+        "format": "json"
     }
-    trial_data.append(trial_info)
 
-# Create a DataFrame
-df_output = pd.DataFrame(trial_data)
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()  # Raise error for bad response status
 
-# Save DataFrame to Excel
-df_output.to_csv('Designated_Drug_TrialData.csv', index=False)
+        data = response.json()
+        if 'studies' in data:
+            return data['studies']
+        else:
+            print(f"No studies found for {drug}, {condition}, {sponsor}")
+            return []
 
-save_path = r'C:\Users\yello\Downloads\Data_altREU\Designated_Drug_TrialData.csv'
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        return []
 
-print( "Data has been saved to", save_path)
+
+def combine_arrays(drug, condition, sponsor):
+    combined_array = []
+    for i in range(min(len(drug), len(condition), len(sponsor))):  # Use minimum length to avoid out-of-bounds errors
+        combined_array.append((drug[i], condition[i], sponsor[i]))
+    return combined_array 
+
+drugs= [
+    "Liposomal ciprofloxacin for inhalation",
+    "Liposomal doxorubicin hydrochloride",
+    "dihydroartemisinin and piperaquine",
+    "mepivacaine",
+    "potassium sodium aluminosilicate",
+    "defibrotide",
+    "sodium nitrite",
+    "Sodium phenylbutyrate",
+    "ranprinase",
+    "Microvesiculated modified glycosylated tissue factor",
+    "recombinant ovine interferon tau",
+    "cytarabine liposome",
+    "maribavir",
+    "Recombinant human platelet derived growth factor BB",
+    "Fibrin-based agent containing a N-terminally modified parathyroid hormone fragment TGplPTH1-34",
+    "chenodeoxycholic acid",
+    "idebenone",
+    "cethromycin",
+    "aminolevulinic acid hydrochloride",
+    "Sodium phenylbutyrate",
+    "Cisplatin in liposomal formulation",
+    "rapamycin",
+    "Sodium nitrite/sodium thiosulfate",
+    "sodium nitrite",
+    "sodium nitrite",
+    "Attenuated autologous cancer cells and granulocyte macrophage colony stimulating factor in combination with activated autologous blood derived T-cells",
+    "leukocyte interleukin",
+    "Pafuramidine maleate",
+    "valine-valine-ganciclovir",
+    "adeno-associated viral vector expressing human retinoschisin-1 gene",
+    "Autologous cultured endothelial cells on a donor human corneal disk",
+    "mibefradil",
+    "5(S)-(2'-hydroxy ethoxy)-20(S)-Camptothecin",
+    "5,7-dihydroxy-3-(4-hydroxyphenyl)-chromen-4-one",
+    "Cordycepin",
+    "iobenguane I 131",
+    "(R)-2-methyl-6-nitro-2-{4-[4-(4-trifluoromethoxyphenoxy)piperidin-1-yl]phenoxymethyl}-2,3-dihydroimidazo[2,1-b]oxazole",
+    "Recombinant P-selectin glycoprotein ligand-immunoglobulin Ig",
+    "Intravenous immune globulin",
+    "Sodium ascorbate and menadione sodium bisulfite",
+    "Betulinic acid",
+    "4-Amino-1-[5-O-[(2R, 4S)-2-oxido-4-(4-pyridinyl)-1, 3, 2-dioxaphosphorinan-2-yl]-b-D-arabinofuranosyl]-2(1H)-pyrimidinone",
+    "Pafuramidine maleate",
+    "Colchicine",
+    "recombinant human fibrinogen",
+    "Interferon gamma",
+    "Microvesiculated modified glycosylated tissue factor",
+    "Tamibarotene",
+    "dexpramipexole",
+    "N-adamantanyl-N'-Geranyl-ethylenediamine",
+    "ursodiol",
+    "Betahistine dihydrochloride",
+    "glatiramer acetate",
+    "moxetumomab pasudotox",
+    "mecasermin",
+    "Chlorotoxin",
+    "Hemoximer (pyridoxalated hemoglobin polyoxyethylene)",
+    "beclomethasone 17,21-diproprionate",
+    "Elesclomol",
+    "spherical carbon adsorbent",
+    "reslizumab",
+    "Clonazepam Intranasal Spray",
+    "Bcl-2 Family Protein Inhibitor",
+    "IDUA-HIRMAb fusion protein",
+    "paromomycin sulfate/gentamicin sulfate",
+    "paclitaxel aqueous gel",
+    "Triheptanoin",
+    "Autologous olfactory neural progenitors",
+    "triciribine",
+    "Type 1 native bovine skin collagen",
+    "Cys-His-Ala-Val-Cys",
+    "doxorubicin with pluronics F-127 and L-61",
+    "Levofloxacin",
+    "arylsulfatase A (rhASA)",
+    "Manganese superoxide dismutase mimetic",
+    "cenersen",
+    "milatuzumab",
+    "5-[(E)-2-(4-hydroxyphenyl)-ethenyl] benzene-1,3 diol",
+    "bifidobacterium infantis 35624",
+    "Alpha1-antitrypsin(human)",
+    "cyclosporine A",
+    "ammonium tetrathiomolybdate",
+    "nabumetone",
+    "Valproate",
+    "dimethyl sulfoxide",
+    "cysteamine",
+    "blinatumomab",
+    "Blinatumomab",
+    "blinatumomab",
+    "bupivacaine",
+    "hydrocortisone modified release tabs",
+    "2 dimethylbutyrate",
+    "elacytarabine",
+    "recombinant human type VII collagen",
+    "cenersen",
+    "vincristine sulfate liposomes",
+    "Recombinant adeno-associated virus retinal pigment epithelium gene vector AAV2-hRPE65v2",
+    "omigapil",
+    "Mx-dnG1",
+    "Mx-dnG1",
+    "cardiotrophin-1",
+    "vascular endothelial growth factor 165b",
+    "liposomal cyclosporine for inhalation",
+    "sodium nitrite",
+    "sodium 2, 2 dimethylbutyrate",
+    "metyrosine",
+    "3-fluoro-5-[5-(2-menthyl-thiazol-4-ylethylnyl)-pyridin-2-yl]-benzonitrile dihydrochloride",
+    "human anti-cellular adhesion molecule-1 monoclonal antibody",
+    "ADAMTS13, recombinant-krhn",
+    "4-[1]benzofuro[3,2-d]pyrimidin-4-yl-N-(1,3-benzodioxol-5-ylmethyl)piperazine-1-carbothioamide",
+    "Intravenous immune globulin (human) 10%",
+    "Bardoxolone",
+    "cysteamine",
+    "Arenegyr",
+    "glycafilin",
+    "Seneca Valley virus",
+    "granulocyte macrophage colony stimuling factor",
+    "2-[(3-methyl-4-(2,2,2-trifluoroethoxy) pyridin-2-yl)methylsulfinyl] -1H-benzoimidazole",
+    "nitric oxide",
+    "insecticidal toxin derived from Bacillus thuringiensis",
+    "Daunorubicin liposomal",
+    "lysosomal enzyme N-acetylgalactosamine-6-sulfate sulfatase",
+    "AQ-13 (4-aminoquinoline analog)",
+    "anti-T-lymphocyte immune globulin, rabbit",
+    "Human Allogeneic HLA-matched, Umbilical Cord Blood Hematopoietic Progenitor Cells Ex Vivo Expanded on Allogeneic Mesenchymal Precursor Cells",
+    "[131I]-N-(2-(diethylamino) ethyl-4-(4 flurobenzamido)-5-(iodo)-2-methoxybenzamide",
+    "metronidazole",
+    "Full Phosphorothioate Antisense Oligonucleotide against EWS-Fli-1 nanoparticles",
+    "phosphorothioate antisense olignucleotide against EWS-Fli-1",
+    "cyclosporine A",
+    "monoclonal antibody 3F8",
+    "mibefradil",
+    "pralatrexate",
+    "pralatrexate",
+    "recombinant human histone H1.3; recombinant human N-bis-met-histone H1.3",
+    "Thawed donor matched banked umbilical cord blood enriched by cell sorting to produce a subpopulation expressing high levels of intracellular aldehyde dehydrogenase",
+    "liposomal topotecan hydrochloride",
+    "Itraconazole suspension",
+    "melphalan hydrochloride",
+    "liposomal gadodiamide",
+    "GNE Lipoplex",
+    "antineoplaston A10, antineoplaston AS2-1",
+    "pentosan polysulfate sodium",
+    "tesetaxel",
+    "fosfomycin/tobramycin",
+    "R-4-amino-3-(4-chlorophenyl)butanoic acid",
+    "dexamethasone phosphate",
+    "quinine sulfate",
+    "chlorotoxin",
+    "anti-CD30"
+]
+
+conditions = [
+    "Management of bronchiectasis",
+    "soft tissue sarcomas",
+    "uncomplicated malaria caused by 'Plasmodium falciparum,' Plasmodium vivax,' Plasmodium malariae,' or 'Plasmodium ovale.'",
+    "postherpetic neuralgia",
+    "For poisoning by or exposure to cesium.",
+    "For the prevention of hepatic veno-occlusive disease.",
+    "Prevention of vasospasm associated with subarachnoid hemorrhage",
+    "spinal muscular atrophy",
+    "malignant mesothelioma",
+    "non-life threatening, mild to severe bleeding episodes due to cutaneous injuries or dental procedures in hemophiliac patients",
+    "pediatric multiple sclerosis",
+    "gliomas",
+    "Prevention of cytomegalovirus viremia and disease in the populations at risk.",
+    "osteonecrosis of the jaws",
+    "solitary (unicameral) bone cysts",
+    "cerebrotendinous xanthomatosis",
+    "Duchenne muscular dystrophy",
+    "Prophylactic patients exposed to inhalation anthrax.",
+    "esophageal dysplasia",
+    "osteosarcoma",
+    "tuberous sclerosis complex",
+    "cyanide poisoning",
+    "vaso-occlusive crisis associated with sickle cell disease",
+    "primary central nervous system malignancies",
+    "Neoadjuvant therapy in patients with squamous cell carcinoma of the head and neck",
+    "malaria",
+    "primary keratoconjunctivitis and recurrent epithelial keratitis due to HSV1 and HSV2.",
+    "X-linked juvenile retinoschisis (XLRS).",
+    "Fuch's dystrophy, pseudophakic bullous keratopathy, and bullous keratopathy",
+    "ovarian cancer",
+    "osteosarcoma (bone cancer)",
+    "Prevention of acute radiation syndrome",
+    "TdT-positive acute lymphocytic leukemia",
+    "neuroendocrine tumors",
+    "pulmonary tuberculosis.",
+    "Prevention of ischemia reperfusion injury in all solid organ transplants",
+    "Stage IIB to IV malignant melanoma",
+    "metastatic or locally advanced inoperable transitional cell carcinoma of the urothelium (stage III and IV bladder cancer)",
+    "Topical metastatic melanoma",
+    "hepatocellular carcinoma.",
+    "human African trypanosomiasis (sleeping sickness)",
+    "Behcet's Syndrome",
+    "bleeding in patients deficient in fibrinogen",
+    "idiopathic pulmonary fibrosis",
+    "non-life threatening, mild to severe bleeding episodes due to cutaneous injuries or dental procedures in patients with von Willebrand disease.",
+    "acute promyelocytic leukemia (APL).",
+    "amyotrophic lateral sclerosis",
+    "tuberculosis.",
+    "cystic fibrosis liver disease",
+    "obesity associated with Prader Willi syndrome",
+    "amyotrophic lateral sclerosis (ALS).",
+    "CD22-positive chronic lymphocytic leukemia",
+    "myotonic dystrophy",
+    "malignant glioma",
+    "cardiogenic shock",
+    "pediatric patients with Crohn disease.",
+    "metastatic melanoma in combination with paclitaxel",
+    "chronic pouchitis",
+    "children with eosinophilic esophagitis",
+    "recurrent acute repetitive seizures",
+    "small cell lung cancer",
+    "mucopolysaccharidosis Type 1 (MPS)",
+    "all uncomplicated cutaneous leishmaniasis (both New World and Old World)",
+    "esophageal cancer",
+    "glycogen storage disorder II (Pompe disease)",
+    "spinal cord injury patients with ASIA Impairment grades A, B, or C",
+    "multiple myeloma",
+    "diffuse systemic sclerosis",
+    "For use in conjunction with melphalen for the malignant melanoma, AJCC stages IIB, IIC, III and IV",
+    "gastric cancer",
+    "pulmonary infections due to Pseudomonas aeruginosa and other bacteria in patients with cystic fibrosis patients",
+    "metachromatic leukodystrophy",
+    "Prevention of radiation- or chemotherapy-induced oral mucositis in cancer patients",
+    "chronic lymphocytic leukemia",
+    "multiple myeloma",
+    "MELAS syndrome",
+    "pediatric ulcerative colitis",
+    "bronchiectasis",
+    "herpes simplex virus stromal keratitis",
+    "idiopathic pulmonary fibrosis",
+    "pediatric juvenile rheumatoid arthritis",
+    "fragile X syndrome",
+    "For use in combination with antimicrobial drugs for the drug resistant tuberculosis",
+    "Huntington's disease",
+    "prolymphocytic leukemia",
+    "chronic lymphocytic leukemia",
+    "Treatment for hairy cell leukemia.",
+    "Relief of persistent pain associated with postherpetic neuralgia",
+    "adrenal insufficiency",
+    "beta thalassemia",
+    "acute myeloid leukemia (AML)",
+    "hereditary dystrophic epidermolysis bullosa (DEB)",
+    "stage IIB through IV melanoma",
+    "metastatic uveal melanoma.",
+    "Leber congenital amaurosis due to RPE65 mutations.",
+    "congenital muscular dystrophy.",
+    "soft tissue sarcoma",
+    "osteosarcoma.",
+    "To protect the liver from ischemia-reperfusion injury inherent to the procedure of transplantation.",
+    "advanced melanoma stages IIb through IV.",
+    "Prevention of bronchiolitis obliterans.",
+    "pulmonary arterial hypertension",
+    "sickle cell disease.",
+    "velocardiofacial syndrome associated psychosis.",
+    "behavioral abnormalities associated with fragile X syndrome.",
+    "multiple myeloma",
+    "Prevention of thrombotic thrombocytopenic purpura including its congential, acquired idiopathic and secondary forms.",
+    "Treatment, in combination with radiotherapy and temozolomide chemotherapy, of patients with glioblastoma multiforme.",
+    "stiff-person syndrome",
+    "pancreatic cancer",
+    "neuronal ceroid lipofuscinoses (Batten disease)",
+    "malignant pleural mesothelioma",
+    "Prevention of delayed graft function after solid organ transplantation",
+    "neuroendocrine tumors",
+    "cystic fibrosis",
+    "hepatocellular carcinoma.",
+    "Use in combination with a drug delivery device for acute sickle cell vaso-occlusive crisis (pain crises)",
+    "soil transmitted helminth infection strongyloidiasis",
+    "acute myeloid leukemia",
+    "mucopolysaccharidosis Type IVA (Morquio Syndrome)",
+    "malaria",
+    "Prophylaxis of acute allograft rejection in adult recipients in solid organ transplantation",
+    "insufficient hematopoietic stem cell production in patients with hematologic malignancies who have failed treatment with conventional chemotherapy.",
+    "metastatic melanoma, stages IIB, IIC, III and IV",
+    "pouchitis",
+    "Ewing's sarcoma",
+    "Ewing's sarcoma",
+    "Prevention of corneal graft rejection",
+    "neuroblastoma",
+    "pancreatic cancer.",
+    "follicular lymphoma",
+    "diffuse large B-cell lymphoma",
+    "acute myeloid leukemia",
+    "To improve patient outcomes by decreasing time to platlet and neutrophil engraftment in patients with inherited metabolic diseases (IMD) undergoing umbilical cord blood transplantation.",
+    "gliomas",
+    "Topical fungal otitis externa (otomycosis)",
+    "patients with cutaneous melanoma.",
+    "glioma",
+    "hereditary inclusion body myopathy-2",
+    "gliomas",
+    "sickle cell disease.",
+    "stages IIB, IIC, III, and stage IV melanoma",
+    "pulmonary infections associated with cystic fibrosis",
+    "the behavorial abnormalities associated with fragile X syndrome",
+    "corneal graft rejection.",
+    "malaria excluding Plasmodium faliparum",
+    "stage IIb, IIc, III & IV melanoma",
+    "Hodgkin lymphoma",
+    "retinitis pigmentosa",
+    "gastric cancer",
+    "multiple myeloma.",
+    "brain cancer.",
+    "amyotrophic lateral sclerosis",
+    "HPV-16 expressing head and neck squamous cell carcinoma.",
+    "myelodysplastic syndromes",
+    "chronic lymphocytic leukemia",
+    "postherpetic neuralgia.",
+    "vaso-occlusive crisis in patients with sickle cell disease.",
+    "telomerase reverse transcriptase (TERT) positive non-small cell lung cancer in HLA-A*0201 positive patients",
+    "cystic fibrosis",
+    "perinatal asphyxia.",
+    "pediatriac patients with ulcerative colitis",
+    "hepatocellular carcinoma",
+    "Topical cutaneous lymphoma encompassing cutaneous manifestations of T-cell lymphoma and B-cell lymphoma",
+    "ovarian carcinoma",
+    "Prophylaxis of acute rejection of solid organ transplantation",
+    "Prevention of arteriovenous fistula and arteriovenous graft failure in patients with chronic kidney disease (CKD) who are receiving hemodialysis or preparing for hemodialysis",
+    "ovarian cancer",
+    "glioma",
+    "Cockayne syndrome",
+    "persistent corneal epithelial defects",
+    "idiopathic pulmonary fibrosis",
+    "Leber's congenital amaurosis",
+    "bronchiolitis obliterans",
+    "Charcot-Marie-Tooth disease type 1A.",
+    "Huntington's Disease.",
+    "Management of cystic fibrosis patients to improve airway clearance and to improve or stabilize pulmonary function",
+    "patients with lymphatic malformations",
+    "neuroendocrine tumors",
+    "To aid in the diagnosis of medullary thyroid carcinoma",
+    "For use as a replacement solution in adults and children during Continuous Renal Replacement Therapy",
+    "astrocytic tumors",
+    "gastric cancer",
+    "Tourette's Syndrome in school-age children, ages 5-16",
+    "pancreatic cancer",
+    "Symptomatic self-injurious behaviors in patients with Lesch-Nyhan disease.",
+    "patients with pancreatic cancer",
+    "pancreatic cancer.",
+    "gastrointestinal symptoms with chronic graft-versus-host disease in patients undergoing allogeneic hematopoietic cell transplantation",
+    "Dystrophic Epidermolysis Bullosa.",
+    "Hodgkin lymphoma",
+    "acute lymphoblastic leukemia",
+    "ovarian cancer",
+    "Duchenne Muscular Dystrophy.",
+    "hepatocellular carcinoma.",
+    "Huntington's disease.",
+    "glioblastoma multiforme.",
+    "severe combined immunodeficiency due to adenosine deaminase deficiency.",
+    "For neurocognitive symptoms associated with Hunter Syndrome",
+    "ovarian cancer.",
+    "mitochondrial disease",
+    "Philadelphia chromosome-positive chronic myeloid leukemia",
+    "Prevention of ischemia reperfusion injury to donor organ tissue associated with solid organ transplantation",
+    "Philadelphia-negative classic myeloproliferative disorders",
+    "For intermittent or chronic patients with cirrhosis and any grade hepatic encephalopathy.",
+    "Prophylactic plague due to Yersinia pestis",
+    "Prophylactic tularemia due to Francisella tularensis."
+]
+
+sponsors= [
+    "Savara Inc.",
+    "GP-Pharm SA",
+    "Alfasigma S.p.A",
+    "Relmada Therapeutics, Inc.",
+    "Westhaven Therapeutics Corporation",
+    "Jazz Pharmaceuticals, Inc.",
+    "Hope Pharmaceuticals",
+    "OrphaMed, Inc.",
+    "Alfacell Corporation",
+    "Thrombotargets Corp.",
+    "PEPGEN Corporation",
+    "Bruce Frankel, MD",
+    "Takeda Phrmaceuticals USA, Inc.",
+    "Luitpold Pharmaceuticals, Inc.",
+    "Kuros Biosurgery AG",
+    "Leadiant Biosciences, Inc.",
+    "Chiesi Farmaceutici S.p.A.",
+    "Advanced LIfe Sciences, Inc.",
+    "DUSA Pharmaceuticals, Inc.",
+    "Tikvah Therapeutics, Inc.",
+    "Eleison Pharmaceuticals LLC",
+    "OncoImmune, Inc.",
+    "Keystone Pharmaceuticals, Inc.",
+    "Hope Pharmaceuticals",
+    "Hope Pharmaceuticals",
+    "TVAX Biomedical, LLC",
+    "CEL-SCI Corporation",
+    "Immtech Pharmaceuticsl, Inc.",
+    "Verenta Pharmaceuticals, Inc.",
+    "TeamedOn International, Inc.",
+    "Cellular Bioengineering, Inc.",
+    "Cavion, LLC",
+    "Dr. Reddy's Laboratories, Inc.",
+    "Humanetics Corporation",
+    "OncoVista, Inc.",
+    "Jubilant DraxImage, Inc.",
+    "Otsuka Pharmaceutical Company, Ltd",
+    "Y's Therapeutics, Inc.",
+    "GammaCan Ltd.",
+    "IC-MedTech Corporation",
+    "Advanced Life Sciences, Inc. (ALS)",
+    "Ligand Pharmaceuticals, Inc.",
+    "Immtech Pharmaceuticals, Inc.",
+    "AR Scientific, Inc.",
+    "Pharming Technologies B.V.",
+    "mondoBIOTECH Laboratories AG",
+    "Thrombotargets Corp.",
+    "CytRx Corporation",
+    "Knopp Biosciences LLC",
+    "Sequella, Inc.",
+    "Asklepion Pharmaceuticals, LLC",
+    "Altamira Therapeutics Inc.",
+    "Teva Neurosciences, Inc.",
+    "AstraZeneca Pharmaceuticals LP",
+    "Insmed, Inc.",
+    "Eisai Inc.",
+    "Apex Bioscience, Inc.",
+    "Soligenix, Inc.",
+    "Synta Pharmaceuticals Corporation",
+    "Ocera Therapeutics, Inc.",
+    "Teva Respiratory, LLC",
+    "Jazz Pharmaceuticals, Inc.",
+    "AbbVie Inc.",
+    "ArmaGen Technologies, Inc.",
+    "Appili Therapeutics Inc.",
+    "BTG International, Inc.",
+    "Baylor Research Institute",
+    "RhinoCyte, Inc.",
+    "VioQuest Pharmaceuticals, Inc.",
+    "arGentis Pharmaceuticals, LLC",
+    "Adherex Technologies, Inc.",
+    "Supratek Pharma, Inc.",
+    "Horizon Therapeutics USA, Inc.",
+    "Takeda Development Center Americas, Inc.",
+    "Galera Therapeutics, LLC",
+    "Eleos, Inc.",
+    "Immunomedics, Inc.",
+    "Sirtris Pharmaceuticals, Inc.",
+    "Alimentary Health Limited",
+    "Kamada Ltd.",
+    "Santen SAS",
+    "Pipex Pharmaceuticals, Inc.",
+    "Cook Pharma",
+    "Neuropharm Ltd,",
+    "Abela Pharmaceuticals, Inc.",
+    "Horizon Therapeutics USA, Inc.",
+    "Amgen, Inc.",
+    "Amgen, Inc.",
+    "Amgen, Inc.",
+    "DURECT Corporation",
+    "Shire ViroPharma, Inc.",
+    "HemaQuest Pharmaceuticals, Inc.",
+    "Clavis Pharma ASA",
+    "David T. Woodley, MD and Mei Chen, MD",
+    "Eleos, Inc.",
+    "Acrotech Biopharma LLC",
+    "Spark Therapeutics, Inc.",
+    "Santhera Pharmaceuticals (Switzerland) Limited",
+    "Epeius Biotechnologies Corporation",
+    "Epeius Biotechnologies Corporation",
+    "Digna Biotech, S.L.",
+    "PhiloGene, Inc.",
+    "Zambon S.p.A.",
+    "Airess Pharmaceuticals, Inc.",
+    "HemaQuest Pharmaceuticals, Inc.",
+    "Cerberus Princeton, LLC",
+    "Seaside Therapeutics",
+    "BioInvent International AB",
+    "Takeda Development Center Americas, Inc.",
+    "SuperGen, Inc.",
+    "Octapharma USA, Inc.",
+    "Reata Pharmaceuticals, Inc.",
+    "Raptor Pharmaceuticals, Inc.",
+    "MolMed S.p.A.",
+    "ProtAffin Biotechnologies AG",
+    "Seneca Therapeutics, Inc.",
+    "Savara Inc.",
+    "BioQuant, Inc.",
+    "Mallinckrodt Pharmaceuticals Ireland Ltd.",
+    "University of California, San Diego",
+    "Diatos USA, LLC",
+    "Vivendy Therapeutics LTD",
+    "Immtech Pharmaceuticals, Inc.",
+    "Neovii Biotech GmbH",
+    "Mesoblast, Inc.",
+    "Molecular Insight Pharmaceuticals, Inc. (Progenics Subsidiary)",
+    "Avivia Project BV",
+    "The Cure Our Children Foundation",
+    "The Cure Our Children Foundation",
+    "Santen SAS",
+    "United Therapeutics Corporation",
+    "Cavion, LLC",
+    "Acrotech Biopharma LLC",
+    "Acrotech Biopharma LLC",
+    "Xenetic Biosciences Plc",
+    "Aldagen, Inc.",
+    "MedGenesis Therapeutix, Inc.",
+    "Fairfield Clinical Trials, LLC",
+    "Delcath Systems, Inc.",
+    "MedGenesis Therapeutix, Inc.",
+    "Gradalis, Inc.",
+    "Burzynski Research Institute, Inc.",
+    "TRF Pharma, Inc.",
+    "Genta, Inc.",
+    "CURx Pharmaceuticals, Inc.",
+    "Clinical Research Associates, LLC",
+    "EyeGate Pharmaceuticals, Inc.",
+    "Zydus Pharmaceuticals, Inc.",
+    "Eisai Inc.",
+    "Xencor, Inc.",
+    "ProRetina Therapeutics, S.L.",
+    "Genta Inc.",
+    "EntreMed, Inc.",
+    "BTG International Inc.",
+    "RhinoCyte, Inc.",
+    "Gliknik, Inc.",
+    "IVAX International GmbH",
+    "Memgen, LLC",
+    "Winston Laboratories, Inc.",
+    "GlycoMimetics, Inc.",
+    "VAXON-Biotech",
+    "CSL Behring LLC",
+    "Neurophyxia B.V.",
+    "Aptalis Pharma US, Inc.",
+    "Imunon",
+    "ExperGen Drug Development GmbH",
+    "EntreMed, Inc.",
+    "Tolera Therapeutics, Inc.",
+    "Proteon Therapeutics, Inc.",
+    "Elevar Therapeutics, Inc.",
+    "Agenus, Inc.",
+    "DNage B.V.",
+    "Glaukos Corporation",
+    "Magnolia Therapeutics LLC",
+    "AmpliPhi Biosciences Corporation",
+    "Zambon S.p.A.",
+    "Murigenetics SAS",
+    "Medivation, Inc.",
+    "N30 PHARMAceuticals, LLC",
+    "Royds Pharmaceuticals, Inc.",
+    "Delcath Systems, Inc.",
+    "AOP Orphan IP AG",
+    "Nikkiso America, Inc.",
+    "NovaRx Corporation",
+    "Neoviibiotech North America, Inc.",
+    "Valeant International (Barbados) SRL",
+    "Astrimmune Ltd.",
+    "Emalex Biosciences, Inc.",
+    "AB Science",
+    "Oncotelic Inc.",
+    "Soligenix, Inc.",
+    "Intercytex Ltd.",
+    "Affimed GmbH",
+    "Orbona Pharma Ltd",
+    "BioCancell Therapeutics USA, Inc.",
+    "BioMarin Pharmaceutical, Inc.",
+    "Delcath Systems, Inc.",
+    "Neurologix, Inc.",
+    "Cavion, LLC",
+    "Fondazione Telethon ETS",
+    "Takeda Pharmaceuticals U.S.A., Inc.",
+    "Merck Sharp & Dohme LLC",
+    "Pharma Cinq, LLC",
+    "Deciphera Pharmaceuticals, LLC",
+    "Hope Pharmaceuticals",
+    "Teva Branded Pharmaceutical Products R&D, Inc.",
+    "Horizon Therapeutics",
+    "Advanced Life Sciences, Inc.",
+    "Advanced Life Sciences, Inc."
+] 
+
+combined_data = combine_arrays(drugs, conditions, sponsors)
+
+dfs = []
+
+for drug, condition, sponsor in combine_arrays(drugs, conditions, sponsors):
+    try:
+        studies = download_function(drug, condition, sponsor)
+        if studies:
+            df = pd.DataFrame(studies)
+            df['Drug'] = drug
+            df['Condition'] = condition
+            df['Sponsor'] = sponsor
+            dfs.append(df)
+        else:
+            print(f"No studies found for {drug}, {condition}, {sponsor}")
+    except Exception as e:
+         print(f"Error downloading data for {drug}, {condition}, {sponsor}: {e}")
+
+if dfs:
+    combined_df = pd.concat(dfs, ignore_index=True)
+    print(combined_df)
+else:
+    print("No data found for any combination of drugs, conditions, and sponsors.")
+
+
+for study in combined_data: 
+    if isinstance(study, dict): 
+        nctId = study.get('NCTId', 'Unknown')
+        overallStatus = study.get('OverallStatus', 'Unknown')
+        startDate = study.get('StartDate', {}).get('date', 'Unknown Date') if isinstance(study.get('StartDate', {}), dict) else 'Unknown Date'
+        conditions = ', '.join(study.get('ConditionsList', []))
+        acronym = study.get('Acronym', 'Unknown')
+
+        # Extract interventions 
+        interventions_list = study.get('Interventions', [])
+        interventions = ', '.join([intervention.get('InterventionName', 'No intervention name listed') for intervention in interventions_list]) if interventions_list else "No interventions listed"
+                    
+        # Extract locations 
+        locations_list = study.get('Locations', [])
+        locations = ', '.join([f"{location.get('LocationCity', 'No City')} - {location.get('LocationCountry', 'No Country')}" for location in locations_list]) if locations_list else "No locations listed"
+                    
+        # Extract dates and phases
+        primaryCompletionDate = study.get('PrimaryCompletionDate', {}).get('date', 'Unknown Date') if isinstance(study.get('PrimaryCompletionDate', {}), dict) else 'Unknown Date'
+        studyFirstPostDate = study.get('StudyFirstPostDate', {}).get('date', 'Unknown Date') if isinstance(study.get('StudyFirstPostDate', {}), dict) else 'Unknown Date'
+        lastUpdatePostDate = study.get('LastUpdatePostDate', {}).get('date', 'Unknown Date') if isinstance(study.get('LastUpdatePostDate', {}), dict) else 'Unknown Date'
+        studyType = study.get('StudyType', 'Unknown')
+        enrollmentCount = study.get('EnrollmentCount', 'Unknown')
+        phases = ', '.join(study.get('Phases', []))
+    else: 
+        print(f"Unexpected data structure found: {type(study)}")
+
+    # Append the data to the list as a dictionary
+    combined_df.append({
+        "NCT ID": nctId,
+        "Acronym": acronym,
+        "Overall Status": overallStatus,
+        "Start Date": startDate,
+        "Conditions": conditions,
+        "Interventions": interventions,
+        "Locations": locations,
+        "Primary Completion Date": primaryCompletionDate,
+        "Study First Post Date": studyFirstPostDate,
+        "Last Update Post Date": lastUpdatePostDate,
+        "Study Type": studyType,
+        "Phases": phases,
+        "Enrollment Count": enrollmentCount
+        })
+        
+
+# Create a DataFrame from the list of dictionaries
+df = pd.DataFrame(combined_df)
+
+# Print the DataFrame
+print(df)
