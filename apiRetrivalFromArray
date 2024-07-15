@@ -1,3 +1,6 @@
+# GOAL: To get info from CSV directly but for now trying with arrays 
+
+
 import requests
 import pandas as pd
 from itertools import product
