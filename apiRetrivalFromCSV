@@ -1,0 +1,132 @@
+#Need to include query.intr to specify intervention treatment
+#Need query.lead to specify lead sponsor name
+#query.cond to specify the condition 
+#filter.overallstatus
+import pandas as pd
+import requests
+import json
+import time
+import os 
+from requests.exceptions import ReadTimeout, RequestException, ConnectionError
+
+# Function to fetch trial information from ClinicalTrials.gov with active or recruiting status
+def fetch_trial_info(drug, sponsor, condition, statuses):
+    url = 'https://clinicaltrials.gov/api/v2/studies'  
+    status_filter = " OR ".join([f"AREA[OverallStatus]\"{status}\"" for status in statuses])
+    query = {
+        'expr': f"(AREA[InterventionType]\"{drug}\") AND (AREA[LeadSponsorName]\"{sponsor}\") AND (AREA[Condition]\"{condition}\") AND ({status_filter}) AND (AREA[Phase]\"Phase 3\")",
+        'min_rnk': 1,
+        'max_rnk': 100,
+        'fmt': 'json'
+    }
+    retries = 3
+    for attempt in range(retries): 
+        try:
+            response = requests.get(url, params=query, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Error: Received status code {response.status_code} for {drug}, {sponsor}, {condition}")
+                return None
+        except (ReadTimeout, ConnectionError) as e:
+            print(f"{e} error for {drug}, {sponsor}, {condition}. Retrying ({attempt + 1}/{retries})...")
+            time.sleep(5)
+        except RequestException as e:
+            print(f"RequestException error for {drug}, {sponsor}, {condition}: {e}")
+            return None
+    return None
+
+# Function to extract desired fields from the trial data
+# def defines a function with a series of statements
+def extract_trial_data(trial):
+    fields = trial['Study']['ProtocolSection']
+    return {
+        'NCT Number': fields.get('IdentificationModule', {}).get('NCTId', ''),
+        'Study Title': fields.get('IdentificationModule', {}).get('BriefTitle', ''),
+        'Study URL': f"https://clinicaltrials.gov/ct2/show/{fields.get('IdentificationModule', {}).get('NCTId', '')}",
+        'Acronym': fields.get('IdentificationModule', {}).get('Acronym', ''),
+        'Study Status': fields.get('StatusModule', {}).get('OverallStatus', ''),
+        'Brief Summary': fields.get('DescriptionModule', {}).get('BriefSummary', ''),
+        'Study Results': fields.get('ResultsModule', {}).get('ResultsReference', {}).get('Citation', ''),
+        'Conditions': fields.get('ConditionsModule', {}).get('ConditionList', {}).get('Condition', []),
+        'Interventions': fields.get('ArmsInterventionsModule', {}).get('InterventionList', {}).get('Intervention', []),
+        'Primary Outcome Measures': fields.get('OutcomesModule', {}).get('PrimaryOutcomeList', {}).get('PrimaryOutcome', []),
+        'Secondary Outcome Measures': fields.get('OutcomesModule', {}).get('SecondaryOutcomeList', {}).get('SecondaryOutcome', []),
+        'Other Outcome Measures': fields.get('OutcomesModule', {}).get('OtherOutcomeList', {}).get('OtherOutcome', []),
+        'Sponsor': fields.get('SponsorCollaboratorsModule', {}).get('LeadSponsor', {}).get('LeadSponsorName', ''),
+        'Collaborators': fields.get('SponsorCollaboratorsModule', {}).get('CollaboratorList', {}).get('Collaborator', []),
+        'Sex': fields.get('EligibilityModule', {}).get('Gender', ''),
+        'Age': fields.get('EligibilityModule', {}).get('MinimumAge', '') + " to " + fields.get('EligibilityModule', {}).get('MaximumAge', ''),
+        'Phases': fields.get('DesignModule', {}).get('PhaseList', {}).get('Phase', []),
+        'Enrollment': fields.get('DesignModule', {}).get('EnrollmentInfo', {}).get('EnrollmentCount', ''),
+        'Funder Type': fields.get('SponsorCollaboratorsModule', {}).get('LeadSponsor', {}).get('LeadSponsorClass', ''),
+        'Study Type': fields.get('DesignModule', {}).get('StudyType', ''),
+        'Study Design': fields.get('DesignModule', {}).get('DesignInfo', {}).get('DesignAllocation', ''),
+        'Other IDs': fields.get('IdentificationModule', {}).get('SecondaryIdInfoList', {}).get('SecondaryIdInfo', []),
+        'Start Date': fields.get('StatusModule', {}).get('StartDateStruct', {}).get('StartDate', ''),
+        'Primary Completion Date': fields.get('StatusModule', {}).get('PrimaryCompletionDateStruct', {}).get('PrimaryCompletionDate', ''),
+        'Completion Date': fields.get('StatusModule', {}).get('CompletionDateStruct', {}).get('CompletionDate', ''),
+        'First Posted': fields.get('ResultsFirstPostDateStruct', {}).get('ResultsFirstPostDate', ''),
+        'Results First Posted': fields.get('ResultsFirstPostDateStruct', {}).get('ResultsFirstPostDate', ''),
+        'Last Update Posted': fields.get('LastUpdatePostDateStruct', {}).get('LastUpdatePostDate', ''),
+        'Locations': fields.get('ContactsLocationsModule', {}).get('LocationList', {}).get('Location', []),
+        'Study Documents': fields.get('DocumentsModule', {}).get('DocumentList', {}).get('Document', []),
+    }
+
+# Read the CSV file 
+my_csv_sheet1 = r"C:\Users\yello\Downloads\All_Designated_Drugs.csv"
+my_csv_sheet2 = r"C:\Users\yello\Downloads\All_Approved_Drugs.csv"
+df_sheet1 = pd.read_csv(my_csv_sheet1, encoding='latin1')
+df_sheet2 = pd.read_csv(my_csv_sheet2, encoding='latin1')
+
+# Define status filters
+statuses_sheet1 = [
+    "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION", "NOT_YET_RECRUITING",
+    "RECRUITING", "AVAILABLE"
+]
+statuses_sheet2 = [
+    "SUSPENDED", "TERMINATED", "WITHDRAWN", "COMPLETED", "APPROVED_FOR_MARKETING"
+]
+
+
+# Loop through each drug and sponsor and conditon to fetch results 
+def process_sheet(df, statuses): 
+    results = []
+    for index, row in df.iterrows():
+        drug = row['Drug']
+        sponsor = row['Sponsor']
+        condition = row['Condition']
+        print(f"Fetching data for {drug}, {sponsor}, and {condition}")
+        trial_info = fetch_trial_info(drug, sponsor, condition, statuses)
+        if trial_info and 'FullStudiesResponse' in trial_info and 'FullStudies' in trial_info['FullStudiesResponse']:
+            for study in trial_info['FullStudiesResponse']['FullStudies']:
+                trial_data = extract_trial_data(study)
+                results.append(trial_data)
+        time.sleep(0.5)        
+    return results            
+
+# process each file 
+results_sheet1 = process_sheet(df_sheet1, statuses_sheet1)
+results_sheet2 = process_sheet(df_sheet2, statuses_sheet2)
+
+# Convert results to DataFrame
+results_df_sheet1 = pd.DataFrame(results_sheet1)
+results_df_sheet2 = pd.DataFrame(results_sheet2)
+
+# Specify the folder path 
+folder_path = r'C:\Users\yello\Downloads\Data_altREU'
+
+# Ensure the folder exists
+os.makedirs(folder_path, exist_ok=True)
+
+# Save new CSV files in sepcified folder
+output_file_path_sheet1 = os.path.join(folder_path, 'clinical_trials_results_Designated.csv')
+output_file_path_sheet2 = os.path.join(folder_path, 'clinical_trials_results_Approved.csv')
+
+results_df_sheet1.to_csv(output_file_path_sheet1, index=False)
+results_df_sheet2.to_csv(output_file_path_sheet2, index=False)
+
+
+print(f"Results for Sheet1 saved to {output_file_path_sheet1}")
+print(f"Results for Sheet2 saved to {output_file_path_sheet2}")
+
