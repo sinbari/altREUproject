@@ -2,6 +2,8 @@
 #Need query.lead to specify lead sponsor name
 #query.cond to specify the condition 
 #filter.overallstatus
+
+# NOTE: This uses the old API format, needs to be updated
 import pandas as pd
 import requests
 import json
