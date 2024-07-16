@@ -1,0 +1,51 @@
+# Graphing the number of orphan drug designations over time 
+import pandas as pd 
+import matplotlib.pyplot as plt 
+import seaborn as sns
+
+my_csv = r"C:\Users\yello\Downloads\Data_altREU\DesignatedDateAndDrug.csv"
+df = pd.read_csv(my_csv)
+
+# Convert month column to datetime object to be ale to pull time values for each record
+df["Date Designated"] = pd.to_datetime(df['Date Designated'])
+
+
+#Convert month column into an index to more eaisly work w packages 
+df.index = df['Date Designated']
+del df['Date Designated']
+
+#Aggregate data by year and count number of drugs desginated yearly
+annual_count = df.resample('Y').count()
+
+#plot data 
+sns.lineplot(df)
+plt.plot(annual_count.index, annual_count['Drug'])
+plt.title('Rate of Annual Orphan Drug Designations Over Time')
+plt.ylabel("Number of Orphan Drug Designation Per Year")
+plt.xlabel("Time (years)")
+plt.grid(True)
+plt.show() 
+
+# CHECK FOR STATIONARITY -- via the Dickey Fuller Test
+# Stationarity = the matter in which a time series data changes is constant 
+
+rolling_mean = annual_count.rolling(12).mean() # yearly rolling mean
+rolling_std = annual_count.rolling(12).std() # Yearly rolling std
+plt.plot(annual_count.index, annual_count['Drug'], label="Yearly Orphan Designation Rate")
+plt.plot(rolling_mean, label="Rolling Yearly Orphan Designation Rate")
+plt.plot(rolling_std, label="Rolling Standard Deviation of Yearly Orphan Designation Rate")
+plt.title("Orphan Designation Time Series, Rolling Mean, Standard Deviation")
+plt.legend(loc='upper center') # Fix this later
+plt.grid()
+plt.show()
+
+import statsmodels
+from statsmodels.tsa.stattools import adfuller
+
+#pass df to adfuller method 
+adft = adfuller(annual_count['Drug'], autolag="AIC") #Autolag parameter is AIC, means lag is chosen to minimize the information criterion #DF for drug column
+output_df = pd.DataFrame({
+    "Values":[adft[0],adft[1],adft[2], adft[3], adft[4]['1%'], adft[4]['5%'],adft[4]['10%']], 
+    "Metric":["Test Statistics","p-value","No. of lags used","Number of observations used", 
+            "critical value (1%)", "critical value (5%)", "critical value (10%)"]})
+print(output_df)
