@@ -1,31 +1,25 @@
-#Need to include query.intr to specify intervention treatment
-#Need query.lead to specify lead sponsor name
-#query.cond to specify the condition 
-#filter.overallstatus
-
-# NOTE: This uses the old API format, needs to be updated
-import pandas as pd
 import requests
-import json
-import time
-import os 
-from requests.exceptions import ReadTimeout, RequestException, ConnectionError
+import pandas as pd
+from itertools import product
+import time 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Function to fetch trial information from ClinicalTrials.gov with active or recruiting status
-def fetch_trial_info(drug, sponsor, condition, statuses):
-    url = 'https://clinicaltrials.gov/api/v2/studies'  
-    status_filter = " OR ".join([f"AREA[OverallStatus]\"{status}\"" for status in statuses])
-    query = {
-        'expr': f"(AREA[InterventionType]\"{drug}\") AND (AREA[LeadSponsorName]\"{sponsor}\") AND (AREA[Condition]\"{condition}\") AND ({status_filter}) AND (AREA[Phase]\"Phase 3\")",
-        'min_rnk': 1,
-        'max_rnk': 100,
-        'fmt': 'json'
+def download_function(drug, condition, sponsor): 
+    url = "https://clinicaltrials.gov/api/v2/studies"  
+    params = {
+        "query.intr": drug,
+        "query.cond": condition,
+        "query.lead": sponsor, 
+        "format": "json"
     }
+
     retries = 3
     for attempt in range(retries): 
         try:
-            response = requests.get(url, params=query, timeout=10)
+            response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
+                print(f"API response for {drug}, {sponsor}, {condition}: {response.json()}")  # Add this line to print API response
                 return response.json()
             else:
                 print(f"Error: Received status code {response.status_code} for {drug}, {sponsor}, {condition}")
@@ -36,7 +30,7 @@ def fetch_trial_info(drug, sponsor, condition, statuses):
         except RequestException as e:
             print(f"RequestException error for {drug}, {sponsor}, {condition}: {e}")
             return None
-    return None
+    return None  
 
 # Function to extract desired fields from the trial data
 # def defines a function with a series of statements
@@ -75,46 +69,70 @@ def extract_trial_data(trial):
         'Study Documents': fields.get('DocumentsModule', {}).get('DocumentList', {}).get('Document', []),
     }
 
+
 # Read the CSV file 
 my_csv_sheet1 = r"C:\Users\yello\Downloads\All_Designated_Drugs.csv"
-my_csv_sheet2 = r"C:\Users\yello\Downloads\All_Approved_Drugs.csv"
+
 df_sheet1 = pd.read_csv(my_csv_sheet1, encoding='latin1')
-df_sheet2 = pd.read_csv(my_csv_sheet2, encoding='latin1')
+
+
+#Drop rows with missing values in drug sponsor or condition
+df_sheet1 = df_sheet1.dropna(subset=['Drug', 'Sponsor', 'Condition'])
+
 
 # Define status filters
 statuses_sheet1 = [
     "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION", "NOT_YET_RECRUITING",
     "RECRUITING", "AVAILABLE"
 ]
-statuses_sheet2 = [
-    "SUSPENDED", "TERMINATED", "WITHDRAWN", "COMPLETED", "APPROVED_FOR_MARKETING"
-]
 
 
-# Loop through each drug and sponsor and conditon to fetch results 
-def process_sheet(df, statuses): 
+
+
+# Process each row in parallel 
+def process_row(row):
+    drug = row['Drug']
+    sponsor = row['Sponsor']
+    condition = row['Condition']
+
+    #Check for missing fields
+    if pd.isna(drug) or pd.isna(sponsor) or pd.isna(condition): 
+            print(f"Skipping row wiht missing values: {drug}, {sponsor}, {condition}")
+            return []
+    
+    print(f"Fetching data for {drug}, {sponsor}, and {condition}")
+    trial_info = download_function(drug, sponsor, condition)
     results = []
-    for index, row in df.iterrows():
-        drug = row['Drug']
-        sponsor = row['Sponsor']
-        condition = row['Condition']
-        print(f"Fetching data for {drug}, {sponsor}, and {condition}")
-        trial_info = fetch_trial_info(drug, sponsor, condition, statuses)
-        if trial_info and 'FullStudiesResponse' in trial_info and 'FullStudies' in trial_info['FullStudiesResponse']:
-            for study in trial_info['FullStudiesResponse']['FullStudies']:
-                trial_data = extract_trial_data(study)
-                results.append(trial_data)
-        time.sleep(0.5)        
-    return results            
+    if trial_info and 'FullStudiesResponse' in trial_info and 'FullStudies' in trial_info['FullStudiesResponse']:
+        for study in trial_info['FullStudiesResponse']['FullStudies']:
+            trial_data = extract_trial_data(study)
+            results.append(trial_data)
+            print(f"Extracted trial data: {trial_data}")
+    return results
+
+# Process the DataFrame using parallel processing
+def process_sheet_parallel(df):
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_row = {executor.submit(process_row, row): row for _, row in df.iterrows()}
+        for future in as_completed(future_to_row):
+            try:
+                data = future.result()
+                if data:
+                    results.extend(data)
+            except Exception as e:
+                print(f"Exception: {e}")
+    return results
 
 # process each file 
-results_sheet1 = process_sheet(df_sheet1, statuses_sheet1)
-results_sheet2 = process_sheet(df_sheet2, statuses_sheet2)
+results_sheet1 = process_sheet_parallel(df_sheet1)
+
 
 # Convert results to DataFrame
 results_df_sheet1 = pd.DataFrame(results_sheet1)
-results_df_sheet2 = pd.DataFrame(results_sheet2)
 
+
+print(f"Results Dataframe: {results_df_sheet1}") # prints df 
 # Specify the folder path 
 folder_path = r'C:\Users\yello\Downloads\Data_altREU'
 
@@ -122,13 +140,15 @@ folder_path = r'C:\Users\yello\Downloads\Data_altREU'
 os.makedirs(folder_path, exist_ok=True)
 
 # Save new CSV files in sepcified folder
-output_file_path_sheet1 = os.path.join(folder_path, 'clinical_trials_results_Designated.csv')
-output_file_path_sheet2 = os.path.join(folder_path, 'clinical_trials_results_Approved.csv')
+output_file_path_sheet1 = os.path.join(folder_path, 'API_trials__Designated.csv')
+
 
 results_df_sheet1.to_csv(output_file_path_sheet1, index=False)
-results_df_sheet2.to_csv(output_file_path_sheet2, index=False)
+
 
 
 print(f"Results for Sheet1 saved to {output_file_path_sheet1}")
-print(f"Results for Sheet2 saved to {output_file_path_sheet2}")
+
+
+
 
