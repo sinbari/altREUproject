@@ -1,0 +1,46 @@
+# Graphing the number of orphan drug approvals over time 
+# Graphing the number of orphan drug designations over time 
+import pandas as pd 
+import matplotlib.pyplot as plt 
+import seaborn as sns
+
+
+
+my_csv = r"C:\Users\yello\Downloads\Data_altREU\ApprovedDrugAndDates.csv"
+df = pd.read_csv(my_csv)
+
+
+# Convert month column to datetime object to be ale to pull time values for each record
+df['Date Designated'] = pd.to_datetime(df['Date Designated'])
+df['Marketing Approval Date'] = pd.to_datetime(df['Marketing Approval Date'])
+
+
+# Aggregate by DesignationDate
+designation_counts = df.groupby(df['Date Designated'].dt.to_period('Y')).size().reset_index(name='Count')
+
+# Aggregate by ApprovalDate
+approval_counts = df.groupby(df['Marketing Approval Date'].dt.to_period('Y')).size().reset_index(name='Count')
+
+# Convert the periods back to datetime for plotting
+designation_counts['Date Designated'] = designation_counts['Date Designated'].dt.to_timestamp()
+approval_counts['Marketing Approval Date'] = approval_counts['Marketing Approval Date'].dt.to_timestamp()
+
+
+''' #Aggregate data by year and count number of drugs desginated yearly seperately & index seperately
+designation_annual_count = df.set_index('Date Designated').resample('Y').count()
+approval_annual_count = df.set_index('Marketing Approval Date').resample('Y').count()
+
+print(designation_annual_count.tail())
+print(approval_annual_count.tail()) '''
+
+#plot data 
+sns.lineplot(df)
+plt.plot(designation_counts['Date Designated'], designation_counts['Count'], label='Designation Date')
+plt.plot(approval_counts['Marketing Approval Date'], approval_counts['Count'], label='Marketing Approval Date')
+
+plt.title('Number of Annual Orphan Drugs Designated and Approved Over Time')
+plt.ylabel("Number of Orphan Drug Designated and Approved Per Year")
+plt.xlabel("Time (years)")
+plt.legend(loc="best")
+plt.grid(True)
+plt.show()
