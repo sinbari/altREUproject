@@ -1,0 +1,27 @@
+# Graphing the number of orphan drug designations over time 
+import pandas as pd 
+import matplotlib.pyplot as plt 
+import seaborn as sns
+
+my_csv = r"C:\Users\yello\Downloads\Data_altREU\DesignatedDateAndDrug.csv"
+df = pd.read_csv(my_csv)
+
+# Convert month column to datetime object to be ale to pull time values for each record
+df["Date Designated"] = pd.to_datetime(df['Date Designated'])
+
+
+#Convert month column into an index to more eaisly work w packages 
+df.index = df['Date Designated']
+del df['Date Designated']
+
+#Aggregate data by year and count number of drugs desginated yearly
+annual_count = df.resample('Y').count()
+
+#plot data 
+sns.lineplot(df)
+plt.plot(annual_count.index, annual_count['Drug'])
+plt.title('Rate of Annual Orphan Drug Designations Over Time')
+plt.ylabel("Number of Orphan Drug Designation Per Year")
+plt.xlabel("Time (years)")
+plt.grid(True)
+plt.show() 
