@@ -1,0 +1,41 @@
+import statsmodels
+import pandas as pd 
+from statsmodels.tsa.stattools import adfuller
+
+
+my_csv = r"C:\Users\yello\Downloads\Data_altREU\DesignatedDateAndDrug.csv"
+df = pd.read_csv(my_csv)
+
+# Convert month column to datetime object to be ale to pull time values for each record
+df["Date Designated"] = pd.to_datetime(df['Date Designated'])
+
+
+#Convert month column into an index to more eaisly work w packages 
+df.index = df['Date Designated']
+del df['Date Designated']
+
+#Aggregate data by year and count number of drugs desginated yearly
+annual_count = df.resample('Y').count()
+
+#pass df to adfuller method 
+adft = adfuller(annual_count['Drug'], autolag="AIC") #Autolag parameter is AIC, means lag is chosen to minimize the information criterion #DF for drug column
+output_df = pd.DataFrame({
+    "Values":[adft[0],adft[1],adft[2], adft[3], adft[4]['1%'], adft[4]['5%'],adft[4]['10%']], 
+    "Metric":["Test Statistics","p-value","No. of lags used","Number of observations used", 
+            "critical value (1%)", "critical value (5%)", "critical value (10%)"]})
+print(output_df)
+
+# Autocorrelation test: How correlated time series data is at a given point with past values 
+# lag parameter refers to number of periods in the index (aka years); we have 41 indices so 41 years
+autocorrelation_lag1 = annual_count['Drug'].autocorr(lag=1) # Checks autocorrelation for 1 year cycle
+print("One year lag: ", autocorrelation_lag1)
+
+
+autocorrelation_lag2 = annual_count['Drug'].autocorr(lag=5) # Checks autocorrelation for 5 year cycle
+print("Five year lag: ", autocorrelation_lag2)
+
+autocorrelation_lag3 = annual_count['Drug'].autocorr(lag=10) # Checks autocorrelation for 10 year cycle
+print("Ten year lag: ", autocorrelation_lag3)
+
+autocorrelation_lag4 = annual_count['Drug'].autocorr(lag=20) # Checks autocorrelation for 20 year cycle
+print("Twenty year lag: ", autocorrelation_lag4)
