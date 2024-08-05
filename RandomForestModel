@@ -1,0 +1,82 @@
+## Goal: Use cross validation methods (RepeatedStratifiedKFold) on dataset and format data to a random forest model, 
+  testing the class weights 'balanced', 'balanced_subsample', no class wieght, or the BalancedRandoMForestModel from imblearn to see which model parameter is best
+
+# OG Dataset, RF, CV, class_weight=balanced_subsample
+from numpy import mean
+import pandas as pd 
+from sklearn.ensemble import RandomForestClassifier
+# If i was getting the balancedRandomForestClassifier i wuld say import imblearn.emsemble import BalancedRandomForestClassifier
+from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold
+
+#Read the data 
+my_file = r"C:\Users\yello\Downloads\Data_altREU\Trial_Data\ML_FormattedTrainSet.csv"
+df_original = pd.read_csv(my_file)
+
+
+# Data processing -- encode data 
+# Define the columns to encode
+columnList = ['Study Design: Allocation', 'Study Design: Interventional Model', 'Study Design: Masking', 'Study Design: Primary Purpose']
+
+# Separate columns into categorical and other columns
+df_categorical = df_original[columnList]
+df_other = df_original.drop(columns=columnList)
+
+# Encode the categorical columns
+df_categorical_encoded = pd.get_dummies(df_categorical, columns=columnList)
+
+# Combine the encoded columns with the other columns
+df_encoded = pd.concat([df_other, df_categorical_encoded], axis=1)
+
+# Move 'Study Status' column to the end
+col_to_move = 'Study Status'
+if col_to_move in df_encoded.columns:
+    cols = [col for col in df_encoded.columns if col != col_to_move]  # List of columns except the one to move
+    cols.append(col_to_move)  # Append the column to the end
+
+    # Reorder the DataFrame
+    df_encoded = df_encoded[cols]
+
+# Replace True/False
+df_encoded = df_encoded.replace({False: 0, True: 1})
+
+
+df_encoded.isnull().sum() # Checks for any null values in the data 
+
+
+#Get target data 
+y = df_encoded['Study Status']
+
+# Load X Variables into df w columns
+X = df_encoded.drop(['Study Status'], axis = 1)
+
+
+# Build model 
+# Initiate an instance of the random forest classifier
+rf_model = RandomForestClassifier(class_weight='balanced_subsample')
+
+# define evaluation procedure
+cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=3, random_state=101)
+scoring = ['roc_auc', 'precision', 'recall', 'accuracy', 'f1']
+
+#get the predictions using CV for classification report
+#y_pred = cross_val_predict(rf_model, X, y, cv=cv, n_jobs = -1)
+
+# evaluate model and gets the mean of each score
+scores = cross_val_score(rf_model, X, y, scoring='roc_auc', cv=cv, n_jobs=-1)
+scores1 = cross_val_score(rf_model, X, y, scoring='precision', cv=cv, n_jobs=-1)
+scores2 = cross_val_score(rf_model, X, y, scoring='recall', cv=cv, n_jobs=-1)
+scores3 = cross_val_score(rf_model, X, y, scoring='accuracy', cv=cv, n_jobs=-1)
+scores4 = cross_val_score(rf_model, X, y, scoring='f1', cv=cv, n_jobs=-1)
+
+# summarize performance
+print('Mean ROC AUC: %.3f' % mean(scores))
+print('ROC AUC Standard Deviation: %.3f\n' % scores.std())
+print('Mean Precision: %.3f' % mean(scores1))
+print('Precision Standard Deviation: %.3f\n' % scores1.std())
+print('Mean Recall: %.3f' % mean(scores2))
+print('Recall Standard Deviation: %.3f\n' % scores2.std())
+print('Mean Accuracy: %.3f' % mean(scores3))
+print('Accuracy Standard Deviation: %.3f\n' % scores3.std())
+print('Mean F1: %.3f' % mean(scores4))
+print('F1 Standard Deviation: %.3f' % scores4.std())
+
